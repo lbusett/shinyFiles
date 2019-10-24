@@ -57,7 +57,7 @@ shinyFilesExample <- function() {
 #'
 getVolumes <- function(exclude) {
   if (missing(exclude)) exclude <- NULL
-
+  
   function() {
     osSystem <- Sys.info()["sysname"]
     if (osSystem == "Darwin") {
@@ -69,11 +69,34 @@ getVolumes <- function(exclude) {
       names(media) <- basename(media)
       volumes <- c(volumes, media)
     } else if (osSystem == "Windows") {
+      # first attempt - see if wmic is on path
       where <- system("where wmic", intern = T)
       if (length(attr(where, "status")) == 0) {
         volumes <- system("wmic logicaldisk get Caption", intern = T)
         volumes <- sub(" *\\r$", "", volumes)
-        keep <- !tolower(volumes) %in% c("caption", "")
+      } else {
+        # second attempt - see if wmic is in "standard" path
+        if (file.exists("C:/Windows/System32/wbem/WMIC.exe")) {
+          wmic_path <- "C:/Windows/System32/wbem/WMIC.exe"  
+          volumes <- system("C:/Windows/System32/wbem/WMIC.exe logicaldisk get Caption", intern = T)
+          volumes <- sub(" *\\r$", "", volumes)
+        } else {
+          # third attempt - see if powershell is on path (this is much slower...)
+          # maybe consider a warning, here, suggesting to add wmic to path to 
+          # speed-up? 
+          where <- system("where powershell", intern = T)
+          if (length(attr(where, "status")) == 0) {
+            volumes <- system('powershell -command "get-wmiobject win32_logicaldisk | select Caption',
+                              intern = TRUE)
+            volumes <- trimws(volumes)
+          } else {
+            # if all fails, return NULL so that the warning is issued below
+            volumes <- NULL
+          }
+        }
+      }
+      if (!is.null(volumes)) {
+        keep <- !tolower(volumes) %in% c("caption", "", "-------")
         volumes <- volumes[keep]
         volNames <- system("wmic logicaldisk get VolumeName", intern = T)
         volNames <- sub(" *\\r$", "", volNames)
@@ -83,7 +106,7 @@ getVolumes <- function(exclude) {
         names(volumes) <- volNames
         volumes <- gsub(":$", ":/", volumes)
       } else {
-        message("The wmic command does not seem to be in your system path. For a possible\nfix, see the link below or contact your IT department for help.")
+        message("The wmic or powershell commands does not seem to be in your system path. For a possible\nfix, see the link below or contact your IT department for help.")
         message("https://github.com/thomasp85/shinyFiles/issues/85#issuecomment-494601646")
         volumes <- c()
       }
@@ -99,13 +122,13 @@ getVolumes <- function(exclude) {
 
 getSession <- function() {
   session <- shiny::getDefaultReactiveDomain()
-
+  
   if (is.null(session)) {
     stop(paste(
       "could not find the Shiny session object. This usually happens when a",
       "shinyjs function is called from a context that wasn't set up by a Shiny session."
     ))
   }
-
+  
   session
 }
